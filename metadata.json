@@ -1,0 +1,8 @@
+{
+  "name": "People Analytics Studio",
+  "description": "Enterprise HR Intelligence & Data Workspace with automated cleaning, dimensional modeling, workforce metrics, interactive dashboards, and AI analyst.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
