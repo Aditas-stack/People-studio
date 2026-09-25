@@ -68,3 +68,18 @@ export interface ChatMessage {
   timestamp: string;
   source?: string;
 }
+
+export interface DatasetSnapshot {
+  id: string;
+  name: string;
+  description?: string;
+  timestamp: string;
+  recordCount: number;
+  qualityScore: number;
+  datasetName: string;
+  employees: Employee[];
+  createdBy: string;
+  tags?: string[];
+  isAutoSnapshot?: boolean;
+}
+

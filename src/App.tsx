@@ -28,6 +28,7 @@ import {
   QualityIssue,
   AuditLogEntry,
   Project,
+  DatasetSnapshot,
 } from './types';
 import { calculateQualityAudit } from './utils/dataParser';
 
@@ -102,6 +103,37 @@ export default function App() {
     message: '',
     type: 'info',
   });
+
+  // Dataset Snapshots for point-in-time recovery & version control
+  const [snapshots, setSnapshots] = useState<DatasetSnapshot[]>(() => {
+    const saved = localStorage.getItem('pas_dataset_snapshots');
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      } catch (e) {}
+    }
+    return [
+      {
+        id: 'snap-baseline',
+        name: 'Initial Ingestion Baseline (v1.0)',
+        description: 'Golden baseline captured upon initial Active_Workforce_2026.xlsx upload',
+        timestamp: '2026-09-25 08:30:00',
+        recordCount: currentProject.employees.length,
+        qualityScore: currentProject.qualityScore,
+        datasetName: currentProject.datasetName,
+        employees: currentProject.employees,
+        createdBy: `${currentUser.name} (${currentUser.role})`,
+        tags: ['Baseline', 'Golden Master'],
+        isAutoSnapshot: true,
+      },
+    ];
+  });
+
+  // Save snapshots to localStorage
+  useEffect(() => {
+    localStorage.setItem('pas_dataset_snapshots', JSON.stringify(snapshots));
+  }, [snapshots]);
 
   // Save projects to localStorage
   useEffect(() => {
@@ -398,6 +430,15 @@ export default function App() {
               setSalaryMasked={setSalaryMasked}
               auditLogs={auditLogs}
               onOpenProfile={() => setIsAuthOpen(true)}
+              employees={employees}
+              setEmployees={updateActiveEmployees}
+              datasetName={datasetName}
+              qualityScore={qualityScore}
+              setQualityScore={updateActiveQualityScore}
+              setQualityIssues={setQualityIssues}
+              onAddAuditLog={addAuditLog}
+              snapshots={snapshots}
+              setSnapshots={setSnapshots}
               onShowModal={showNotification}
             />
           )}
