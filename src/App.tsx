@@ -29,6 +29,7 @@ import {
   AuditLogEntry,
   Project,
 } from './types';
+import { calculateQualityAudit } from './utils/dataParser';
 
 export default function App() {
   // Current user state
@@ -93,6 +94,8 @@ export default function App() {
     title: string;
     message: string;
     type?: 'info' | 'success' | 'warning' | 'danger';
+    confirmText?: string;
+    onConfirm?: () => void;
   }>({
     isOpen: false,
     title: '',
@@ -215,9 +218,11 @@ export default function App() {
   const showNotification = (
     title: string,
     message: string,
-    type: 'info' | 'success' | 'warning' | 'danger' = 'info'
+    type: 'info' | 'success' | 'warning' | 'danger' = 'info',
+    confirmText?: string,
+    onConfirm?: () => void
   ) => {
-    setNotification({ isOpen: true, title, message, type });
+    setNotification({ isOpen: true, title, message, type, confirmText, onConfirm });
   };
 
   const addAuditLog = (
@@ -320,6 +325,19 @@ export default function App() {
               setSteps={setTransformationSteps}
               employees={employees}
               setEmployees={updateActiveEmployees}
+              qualityScore={qualityScore}
+              setQualityScore={updateActiveQualityScore}
+              qualityIssues={qualityIssues}
+              setQualityIssues={setQualityIssues}
+              onResetCleanData={() => {
+                const fresh = generateInitialDataset();
+                updateActiveEmployees(fresh);
+                updateActiveQualityScore(96);
+                const audit = calculateQualityAudit(fresh);
+                setQualityIssues(audit.issues);
+                addAuditLog('Dataset Restored', 'Restored workforce records to baseline clean dataset', 'Ingestion');
+                showNotification('Dataset Restored', 'Workforce dataset reset to clean baseline of 487 verified records.', 'success');
+              }}
               onShowModal={showNotification}
               onNavigateToModel={() => setActiveTab('model')}
             />
@@ -400,6 +418,8 @@ export default function App() {
         title={notification.title}
         message={notification.message}
         type={notification.type}
+        confirmText={notification.confirmText}
+        onConfirm={notification.onConfirm}
         onClose={() => setNotification((prev) => ({ ...prev, isOpen: false }))}
       />
     </div>

@@ -20,14 +20,26 @@ import {
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import confetti from 'canvas-confetti';
-import { TransformationStep, Employee } from '../types';
+import { TransformationStep, Employee, QualityIssue } from '../types';
+import { calculateQualityAudit } from '../utils/dataParser';
 
 interface DataCleaningViewProps {
   steps: TransformationStep[];
   setSteps: React.Dispatch<React.SetStateAction<TransformationStep[]>>;
   employees: Employee[];
   setEmployees: React.Dispatch<React.SetStateAction<Employee[]>>;
-  onShowModal: (title: string, message: string, type?: 'info' | 'success' | 'warning' | 'danger') => void;
+  qualityScore?: number;
+  setQualityScore?: (score: number) => void;
+  qualityIssues?: QualityIssue[];
+  setQualityIssues?: React.Dispatch<React.SetStateAction<QualityIssue[]>>;
+  onResetCleanData?: () => void;
+  onShowModal: (
+    title: string,
+    message: string,
+    type?: 'info' | 'success' | 'warning' | 'danger',
+    confirmText?: string,
+    onConfirm?: () => void
+  ) => void;
   onNavigateToModel: () => void;
 }
 
@@ -36,6 +48,11 @@ export const DataCleaningView: React.FC<DataCleaningViewProps> = ({
   setSteps,
   employees,
   setEmployees,
+  qualityScore,
+  setQualityScore,
+  qualityIssues,
+  setQualityIssues,
+  onResetCleanData,
   onShowModal,
   onNavigateToModel,
 }) => {
@@ -49,6 +66,115 @@ export const DataCleaningView: React.FC<DataCleaningViewProps> = ({
   const [newStepName, setNewStepName] = useState('');
   const [newStepDesc, setNewStepDesc] = useState('');
   const [newStepAction, setNewStepAction] = useState<'trim' | 'dept' | 'raise' | 'impute'>('trim');
+
+  // Clean and standardize workforce records
+  const executeCleaning = (recordsToClean: Employee[]): Employee[] => {
+    const seenIds = new Set<string>();
+    const cleaned: Employee[] = [];
+
+    // Prioritize clean existing records over duplicate dirty ones
+    for (const emp of recordsToClean) {
+      const dedupActive = steps.find((s) => s.id === 1)?.applied ?? true;
+      const cleanId = (emp.id || '').trim().toUpperCase();
+
+      if (dedupActive) {
+        if (seenIds.has(cleanId)) continue;
+        seenIds.add(cleanId);
+      }
+
+      // Step 2: Trim whitespace and proper title-case names
+      let name = (emp.name || '').trim().replace(/\s+/g, ' ');
+      name = name
+        .split(' ')
+        .map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
+        .join(' ');
+
+      // Step 3: Standardize departments
+      let dept = (emp.department || '').trim();
+      const lowerDept = dept.toLowerCase();
+      if (lowerDept === 'eng' || lowerDept === 'tech' || lowerDept === 'software') {
+        dept = 'Engineering';
+      } else if (lowerDept === 'fin' || lowerDept === 'finance' || lowerDept === 'accounting') {
+        dept = 'Finance';
+      } else if (lowerDept === 'ops' || lowerDept === 'operations' || lowerDept === 'logistics') {
+        dept = 'Operations';
+      } else if (lowerDept === 'hr' || lowerDept === 'people' || lowerDept === 'human resources') {
+        dept = 'HR';
+      } else if (lowerDept === 'mktg' || lowerDept === 'mkt' || lowerDept === 'marketing') {
+        dept = 'Marketing';
+      } else if (lowerDept === 'sales' || lowerDept === 'commercial') {
+        dept = 'Sales';
+      } else if (dept.length <= 3 && dept.toUpperCase() !== 'HR') {
+        dept = 'Engineering';
+      }
+
+      // Step 4: Fix job titles
+      let jobTitle = (emp.jobTitle || '').trim();
+      if (jobTitle.toLowerCase() === 'frontend dev') {
+        jobTitle = 'Frontend Engineer';
+      } else if (jobTitle.toLowerCase() === 'senior accountant') {
+        jobTitle = 'Senior Accountant';
+      } else if (jobTitle.toLowerCase() === 'logistics analyst') {
+        jobTitle = 'Logistics Analyst';
+      } else {
+        jobTitle = jobTitle
+          .split(' ')
+          .map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
+          .join(' ');
+      }
+
+      // Step 5: Fix non-ISO date formats (e.g. 15/04/2023 -> 2023-04-15)
+      let hireDate = (emp.hireDate || '').trim();
+      if (hireDate.includes('/')) {
+        const parts = hireDate.split('/');
+        if (parts.length === 3) {
+          if (parts[2].length === 4) {
+            hireDate = `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`;
+          }
+        }
+      }
+
+      // Step 6: Handle gender and status
+      const gender = emp.gender && emp.gender !== 'Unknown' ? emp.gender : 'Prefer not to say';
+
+      cleaned.push({
+        ...emp,
+        id: cleanId,
+        name: name || 'Employee',
+        department: dept,
+        jobTitle: jobTitle || 'Analyst',
+        hireDate: hireDate || '2023-01-15',
+        gender: gender as any,
+        status: emp.status || 'Active',
+      });
+    }
+
+    return cleaned;
+  };
+
+  // Real execution of all active pipeline steps
+  const handleExecutePipeline = () => {
+    setIsApplying(true);
+    setTimeout(() => {
+      setIsApplying(false);
+
+      const cleaned = executeCleaning(employees);
+      setEmployees(cleaned);
+
+      if (setQualityScore || setQualityIssues) {
+        const audit = calculateQualityAudit(cleaned);
+        if (setQualityScore) setQualityScore(audit.score);
+        if (setQualityIssues) setQualityIssues(audit.issues);
+      }
+
+      confetti({ particleCount: 50, spread: 60 });
+      onShowModal(
+        'Pipeline Executed Successfully',
+        `Applied active transformations across all ${cleaned.length} records. Cleaned department aliases ("Eng" → "Engineering", "Fin" → "Finance", "Ops" → "Operations"), fixed names and casing, corrected date formats, and enforced uniqueness.`,
+        'success'
+      );
+    }, 500);
+  };
 
   // Inject messy records to demonstrate live cleaning
   const handleInjectMessyData = () => {
@@ -100,11 +226,21 @@ export const DataCleaningView: React.FC<DataCleaningViewProps> = ({
       },
     ];
 
-    setEmployees((prev) => [...dirtyRecords, ...prev]);
+    const updated = [...dirtyRecords, ...employees];
+    setEmployees(updated);
+
+    if (setQualityScore || setQualityIssues) {
+      const audit = calculateQualityAudit(updated);
+      if (setQualityScore) setQualityScore(audit.score);
+      if (setQualityIssues) setQualityIssues(audit.issues);
+    }
+
     onShowModal(
-      'Messy Records Injected',
-      'Injected 3 sample rows with unstandardized departments ("Eng", "Ops", "Fin"), irregular casing, and trailing whitespace. Click "Apply Pipeline" to watch them normalize in real-time!',
-      'warning'
+      'Demo: Messy Records Injected',
+      'Injected 3 test rows with non-standard departments ("Eng", "Ops", "Fin"), irregular casing, and trailing whitespace. Click "Apply Pipeline Now" to watch them normalize instantly!',
+      'info',
+      'Apply Pipeline Now',
+      () => handleExecutePipeline()
     );
   };
 
@@ -166,62 +302,6 @@ export const DataCleaningView: React.FC<DataCleaningViewProps> = ({
     onShowModal('Transformation Executed', `Step "${newStep.name}" added and executed across all records.`, 'success');
   };
 
-  // Real execution of all active pipeline steps
-  const handleExecutePipeline = () => {
-    setIsApplying(true);
-    setTimeout(() => {
-      setIsApplying(false);
-
-      // Perform real deduplication and standardization
-      setEmployees((prev) => {
-        const seenIds = new Set<string>();
-        const cleaned: Employee[] = [];
-
-        for (const emp of prev) {
-          // If deduplication step is applied:
-          const dedupActive = steps.find((s) => s.id === 1)?.applied;
-          if (dedupActive) {
-            if (seenIds.has(emp.id)) continue;
-            seenIds.add(emp.id);
-          }
-
-          // Step 2: Trim whitespace and title case
-          let name = emp.name.trim();
-          name = name
-            .split(' ')
-            .map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
-            .join(' ');
-
-          // Step 3: Standardize departments
-          let dept = emp.department;
-          if (dept === 'Eng') dept = 'Engineering';
-          if (dept === 'Fin') dept = 'Finance';
-          if (dept === 'Ops') dept = 'Operations';
-
-          // Step 6: Handle missing gender
-          const gender = emp.gender || 'Unknown';
-
-          cleaned.push({
-            ...emp,
-            name,
-            department: dept,
-            gender,
-            jobTitle: emp.jobTitle.trim(),
-          });
-        }
-
-        return cleaned;
-      });
-
-      confetti({ particleCount: 50, spread: 60 });
-      onShowModal(
-        'Pipeline Executed Successfully',
-        `Applied active transformations across all ${employees.length} records. Cleaned department aliases, trimmed strings, and enforced referential uniqueness.`,
-        'success'
-      );
-    }, 700);
-  };
-
   const handleDownloadCleanedExcel = () => {
     const wb = XLSX.utils.book_new();
     const ws = XLSX.utils.json_to_sheet(employees);
@@ -234,12 +314,13 @@ export const DataCleaningView: React.FC<DataCleaningViewProps> = ({
   const rowsWithAnomalies = useMemo(() => {
     return employees.filter(
       (e) =>
-        e.department === 'Eng' ||
-        e.department === 'Fin' ||
-        e.department === 'Ops' ||
+        ['Eng', 'Fin', 'Ops', 'Tech', 'Mktg', 'Mkt'].includes(e.department) ||
+        (e.department.length <= 3 && !['HR'].includes(e.department)) ||
         e.name.startsWith(' ') ||
         e.name.endsWith(' ') ||
-        e.name === e.name.toUpperCase()
+        (e.name.length > 3 && e.name === e.name.toUpperCase()) ||
+        e.hireDate.includes('/') ||
+        e.jobTitle === e.jobTitle.toLowerCase()
     );
   }, [employees]);
 
@@ -326,12 +407,24 @@ print(f"Cleaned dataset successfully: {len(df)} rows validated.")`;
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
+            {onResetCleanData && (
+              <button
+                onClick={onResetCleanData}
+                className="bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold px-3 py-2 rounded-xl border border-slate-700 flex items-center gap-1.5 cursor-pointer"
+                title="Restore workforce records to pristine baseline"
+              >
+                <RotateCcw className="w-3.5 h-3.5 text-slate-400" />
+                <span>Reset Clean Data</span>
+              </button>
+            )}
+
             <button
               onClick={handleInjectMessyData}
               className="bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 text-xs font-semibold px-3 py-2 rounded-xl border border-amber-500/30 flex items-center gap-1.5 cursor-pointer"
+              title="Inject 3 sample unstandardized rows to test live normalization"
             >
-              <AlertTriangle className="w-3.5 h-3.5" />
-              <span>Inject Dirty Sample Data</span>
+              <AlertTriangle className="w-3.5 h-3.5 text-amber-400" />
+              <span>Simulate Dirty Records</span>
             </button>
 
             <button
@@ -353,13 +446,65 @@ print(f"Cleaned dataset successfully: {len(df)} rows validated.")`;
             <button
               onClick={handleExecutePipeline}
               disabled={isApplying}
-              className="bg-indigo-600 hover:bg-indigo-500 text-xs text-white font-semibold px-4 py-2 rounded-xl shadow-md shadow-indigo-600/30 flex items-center gap-1.5 cursor-pointer"
+              className={`text-xs text-white font-semibold px-4 py-2 rounded-xl shadow-md flex items-center gap-1.5 cursor-pointer transition-all ${
+                rowsWithAnomalies.length > 0
+                  ? 'bg-emerald-600 hover:bg-emerald-500 shadow-emerald-600/30 ring-2 ring-emerald-400/50'
+                  : 'bg-indigo-600 hover:bg-indigo-500 shadow-indigo-600/30'
+              }`}
             >
               <Play className="w-3.5 h-3.5" />
-              <span>{isApplying ? 'Executing Pipeline...' : 'Apply Pipeline'}</span>
+              <span>
+                {isApplying
+                  ? 'Executing Pipeline...'
+                  : rowsWithAnomalies.length > 0
+                  ? `Apply Pipeline (${rowsWithAnomalies.length} to Clean)`
+                  : 'Apply Pipeline'}
+              </span>
             </button>
           </div>
         </div>
+
+        {/* Live Anomaly Banner */}
+        {rowsWithAnomalies.length > 0 && (
+          <div className="mb-6 bg-amber-500/10 border border-amber-500/30 rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 animate-in fade-in duration-200">
+            <div className="flex items-center space-x-3">
+              <div className="w-9 h-9 rounded-xl bg-amber-500/20 text-amber-400 flex items-center justify-center shrink-0 border border-amber-500/30">
+                <AlertTriangle className="w-4 h-4" />
+              </div>
+              <div>
+                <p className="text-xs font-bold text-white flex items-center gap-2">
+                  <span>{rowsWithAnomalies.length} Unstandardized / Dirty Records Flagged</span>
+                  <span className="bg-amber-500/20 text-amber-300 text-[10px] px-2 py-0.5 rounded-full font-mono">
+                    Ready for Normalization
+                  </span>
+                </p>
+                <p className="text-[11px] text-slate-400 mt-0.5">
+                  Includes taxonomy abbreviations ("Eng", "Ops", "Fin"), irregular casing, or untrimmed names. Click <strong>Apply Pipeline</strong> to normalize them automatically.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 shrink-0">
+              {onResetCleanData && (
+                <button
+                  onClick={onResetCleanData}
+                  className="bg-slate-900 hover:bg-slate-800 text-slate-300 text-xs font-medium px-3 py-1.5 rounded-xl border border-slate-700 flex items-center gap-1.5 cursor-pointer"
+                >
+                  <RotateCcw className="w-3 h-3 text-slate-400" />
+                  <span>Discard & Reset</span>
+                </button>
+              )}
+              <button
+                onClick={handleExecutePipeline}
+                disabled={isApplying}
+                className="bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold px-3.5 py-1.5 rounded-xl shadow-md flex items-center gap-1.5 cursor-pointer"
+              >
+                <Sparkles className="w-3.5 h-3.5" />
+                <span>{isApplying ? 'Normalizing...' : 'Clean & Normalize Now'}</span>
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* View Mode Toggle: Pipeline vs Live Diff Inspector */}
         <div className="flex space-x-2 mb-6">
